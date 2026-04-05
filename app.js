@@ -950,7 +950,8 @@ const renderDetail = () => {
   const reviewsEl = document.getElementById("detail-reviews");
   if (titleEl)   titleEl.textContent   = recipe.title;
   if (timeEl)    timeEl.textContent    = recipe.time || "30 min";
-  if (diffEl)    diffEl.textContent    = recipe.nutrition || recipe.difficulty || "Easy";
+  const kcalStr = recipe.nutrition ? `${recipe.nutrition.kcal} kcal` : (recipe.difficulty || "Easy");
+  if (diffEl)    diffEl.textContent    = kcalStr;
   if (ratingEl)  ratingEl.textContent  = recipe.rating || "4.5";
   if (reviewsEl) reviewsEl.textContent = "128 reviews";
 
