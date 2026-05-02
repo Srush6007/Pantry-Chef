@@ -231,21 +231,7 @@ Pantry-Chef/
 
 ---
 
-## 🗃️ Recipe Database
 
-The app includes a built-in database of **20+ recipes** covering:
-
-- 🍗 Chicken (Biryani, Fried Rice, Teriyaki Bowl, Butter Chicken, Grilled)
-- 🥚 Eggs (Frittata, Masala Omelette, Egg Fried Rice)
-- 🐟 Fish & Seafood (Lemon Herb Salmon)
-- 🍝 Pasta (Tomato, Creamy Garlic)
-- 🧀 Paneer (Tikka Skillet, Palak Paneer)
-- 🫛 Lentils (Veggie Dal)
-- 🥦 Vegetables (Aloo Gobi, Mixed Stir-Fry, Mushroom Toast)
-- 🥑 Snacks (Avocado Toast)
-- 🍖 Mutton (Curry)
-
----
 
 ## 🤝 Contributing
 
@@ -262,12 +248,6 @@ The app includes a built-in database of **20+ recipes** covering:
 This project is licensed under the **MIT License** — feel free to use, modify, and distribute.
 
 ---
-
-## 🙏 Credits
-
-- Food photography by [Unsplash](https://unsplash.com)
-- Icons by [Google Material Symbols](https://fonts.google.com/icons)
-- Fonts by [Google Fonts](https://fonts.google.com)
 
 ---
 
