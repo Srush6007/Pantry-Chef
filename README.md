@@ -1,5 +1,8 @@
 # 🍽️ Pantry Chef — Culinary Journal
 
+Demo Images:<img width="1469" height="800" alt="Screenshot 2026-05-02 at 6 03 48 PM" src="https://github.com/user-attachments/assets/f5e3a96e-b70e-4863-a8c4-6f2c3a4f6101" />
+
+
 <p align="center">
   <img src="chef_avatar.png" alt="Pantry Chef Logo" width="100" style="border-radius:20px;" />
 </p>
