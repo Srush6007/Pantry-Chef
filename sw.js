@@ -1,5 +1,5 @@
-// Pantry Chef — Service Worker v1
-const CACHE_NAME = "pantry-chef-v1";
+// Pantry Chef — Service Worker v5
+const CACHE_NAME = "pantry-chef-v5";
 const STATIC_ASSETS = [
   "/",
   "/index.html",

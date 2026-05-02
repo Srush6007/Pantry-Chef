@@ -1442,12 +1442,70 @@ body.dark .bottom-nav {
 .back-btn .material-symbols-rounded,
 .action-btn .material-symbols-rounded { font-size: 20px; }
 
-/* ── AI loading indicator ───────────────────────────────────── */
-#ai-loading {
-  display: none; padding: 16px 20px;
-  font-size: 13px; color: var(--secondary-text);
-  text-align: center; font-weight: 500;
+/* ── App Settings controls ──────────────────────────────────── */
+.setting-row {
+  display: flex; align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--divider);
 }
+.setting-row:last-child { border-bottom: none; padding-bottom: 0; }
+.setting-label {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 14px; font-weight: 600; color: var(--primary-text);
+}
+.setting-label .material-symbols-rounded { font-size: 18px; color: var(--secondary-text); }
+
+/* Toggle switch */
+.toggle-switch { position: relative; display: inline-block; width: 44px; height: 24px; }
+.toggle-switch input { opacity: 0; width: 0; height: 0; }
+.toggle-slider {
+  position: absolute; cursor: pointer; inset: 0;
+  background: var(--divider); border-radius: 24px;
+  transition: background 0.25s;
+}
+.toggle-slider::before {
+  content: ""; position: absolute;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: #fff; left: 3px; bottom: 3px;
+  transition: transform 0.25s;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+}
+.toggle-switch input:checked + .toggle-slider { background: var(--primary); }
+.toggle-switch input:checked + .toggle-slider::before { transform: translateX(20px); }
+
+/* Unit pills */
+.unit-pill-row { display: flex; gap: 6px; }
+.unit-pill {
+  padding: 6px 14px;
+  border-radius: var(--radius-full);
+  font-size: 12px; font-weight: 700;
+  border: 1.5px solid var(--divider);
+  background: var(--surface-alt);
+  color: var(--secondary-text);
+  transition: all 0.2s; font-family: var(--font-body);
+}
+.unit-pill.active {
+  background: var(--primary); color: #fff;
+  border-color: var(--primary);
+}
+
+/* Servings stepper */
+.servings-stepper {
+  display: flex; align-items: center; gap: 12px;
+}
+.stepper-btn {
+  width: 30px; height: 30px;
+  border-radius: var(--radius-full);
+  background: var(--surface-alt);
+  border: 1.5px solid var(--divider);
+  font-size: 18px; font-weight: 700;
+  color: var(--primary-text);
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s; font-family: var(--font-body);
+}
+.stepper-btn:hover { background: var(--primary-light); border-color: var(--primary); color: var(--primary); }
+#servings-count { font-size: 16px; font-weight: 800; color: var(--primary-text); min-width: 20px; text-align: center; }
 
 /* ── Dark mode toggle ───────────────────────────────────────── */
 .dark-toggle-row {

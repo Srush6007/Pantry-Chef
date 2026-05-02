@@ -51,9 +51,9 @@
 
           <!-- Quick action chips -->
           <div class="quick-chips">
-            <button class="q-chip active" id="upload-image-btn">
-              <span class="material-symbols-rounded">photo_camera</span>
-              AI Vision Scan
+            <button class="q-chip active" id="suggest-ingredient-btn">
+              <span class="material-symbols-rounded">auto_awesome</span>
+              Suggest Ingredients
             </button>
             <button class="q-chip" id="clear-ingredients">
               <span class="material-symbols-rounded">delete_sweep</span>
@@ -63,15 +63,6 @@
               <span class="material-symbols-rounded">bookmark</span>
               Saved
             </button>
-          </div>
-
-          <!-- Hidden file input -->
-          <input type="file" id="image-upload" accept="image/*" style="display:none" />
-
-          <!-- AI loading -->
-          <div id="ai-loading">
-            <span class="material-symbols-rounded" style="font-size:32px;color:var(--primary);">smart_toy</span>
-            <p>AI Vision analysing your image...</p>
           </div>
 
           <!-- Ingredient list -->
@@ -233,21 +224,15 @@
             <h3 class="detail-section-title" style="margin-bottom:14px;">Preparation Steps</h3>
             <div class="steps-list" id="detail-steps"></div>
 
-            <!-- Hinglish translation -->
-            <div id="translation-section" style="display:none;">
-              <h3 class="detail-section-title" style="margin-bottom:12px;">Hinglish Translation</h3>
-              <div class="translation-card" id="translated-text">Loading...</div>
-            </div>
-
             <!-- Action buttons -->
             <div class="detail-actions">
               <button class="detail-action-btn secondary" id="shopping-list-btn" onclick="showShoppingList()">
                 <span class="material-symbols-rounded">shopping_cart</span>
                 Shopping List
               </button>
-              <button class="detail-action-btn secondary" id="translate-recipe-btn">
-                <span class="material-symbols-rounded">translate</span>
-                Hinglish
+              <button class="detail-action-btn secondary" id="share-recipe-btn">
+                <span class="material-symbols-rounded">share</span>
+                Share
               </button>
               <button class="detail-action-btn primary" id="cooked-this-btn">
                 <span class="material-symbols-rounded">celebration</span>
@@ -558,21 +543,44 @@
               <input type="checkbox" id="dark-mode-toggle" />
             </div>
 
-            <!-- AI Setup -->
+            <!-- App Settings -->
             <div class="api-setup-card">
-              <h3>🤖 AI Vision Setup</h3>
-              <p>Connect your Hugging Face API token to enable AI ingredient scanning and recipe generation.</p>
-              <div class="token-input-row">
-                <div class="token-field">
-                  <span class="material-symbols-rounded">key</span>
-                  <input type="password" id="hf-api-token" placeholder="Paste your hf_… token here" maxlength="100" />
+              <h3>⚙️ App Settings</h3>
+              <p>Customise your Pantry Chef experience.</p>
+
+              <div class="setting-row">
+                <div class="setting-label">
+                  <span class="material-symbols-rounded">notifications</span>
+                  Cooking Reminders
                 </div>
-                <button class="token-save-btn" id="save-token-btn">Save</button>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="notif-toggle" />
+                  <span class="toggle-slider"></span>
+                </label>
               </div>
-              <div class="token-status" id="token-status" style="color:var(--error)">No token set</div>
-              <p style="margin-top:10px;font-size:12px;">
-                <a href="https://huggingface.co/settings/tokens" target="_blank" style="color:var(--primary);font-weight:600;">Get your free token at huggingface.co →</a>
-              </p>
+
+              <div class="setting-row">
+                <div class="setting-label">
+                  <span class="material-symbols-rounded">straighten</span>
+                  Measurement Units
+                </div>
+                <div class="unit-pill-row">
+                  <button class="unit-pill active" id="unit-metric-profile">Metric</button>
+                  <button class="unit-pill" id="unit-us-profile">US / Imperial</button>
+                </div>
+              </div>
+
+              <div class="setting-row">
+                <div class="setting-label">
+                  <span class="material-symbols-rounded">restaurant_menu</span>
+                  Servings Default
+                </div>
+                <div class="servings-stepper">
+                  <button class="stepper-btn" id="servings-minus">−</button>
+                  <span id="servings-count">4</span>
+                  <button class="stepper-btn" id="servings-plus">+</button>
+                </div>
+              </div>
             </div>
 
             <!-- Save profile -->

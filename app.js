@@ -1,9 +1,63 @@
+// ─── UNSPLASH CONFIG ─────────────────────────────────────────────────────────
+const UNSPLASH_ACCESS_KEY = "aIIs-4gmG3os4VIZBdHFWQeOA5O_7MW37QcAsYGzooE";
+
+/** In-memory cache: recipe title → resolved Unsplash URL (avoids duplicate API calls) */
+const _unsplashCache = {};
+
+/**
+ * Fetch a relevant food image URL from the Unsplash API.
+ * Results are cached in-session by query string.
+ * @param {string} query   - Search term (e.g. recipe title)
+ * @param {string} fallback - URL to return if the API call fails
+ * @returns {Promise<string>}
+ */
+const fetchUnsplashImage = async (query, fallback = "https://images.unsplash.com/photo-1495521821757-a1efb6729352?auto=format&fit=crop&w=900&q=80") => {
+  if (_unsplashCache[query]) return _unsplashCache[query];
+  try {
+    const q = encodeURIComponent(query + " food dish recipe");
+    const res = await fetch(
+      `https://api.unsplash.com/search/photos?query=${q}&per_page=3&orientation=landscape&content_filter=high`,
+      { headers: { Authorization: `Client-ID ${UNSPLASH_ACCESS_KEY}` } }
+    );
+    if (!res.ok) return fallback;
+    const data = await res.json();
+    const photo = data.results?.[0];
+    const url = photo ? photo.urls.regular : fallback;
+    _unsplashCache[query] = url;
+    return url;
+  } catch {
+    return fallback;
+  }
+};
+
+/**
+ * Smoothly swap an <img> element's src to a freshly fetched Unsplash photo.
+ * @param {HTMLImageElement} imgEl  - The image element to update
+ * @param {string}           title  - Recipe title used as the search query
+ * @param {string}           [fallback] - Current src used as fallback
+ */
+const enqueueImageUpdate = (imgEl, title, fallback) => {
+  if (!imgEl || !title) return;
+  fetchUnsplashImage(title, fallback || imgEl.src).then(url => {
+    if (!url || url === imgEl.src) return;
+    imgEl.style.transition = "opacity 0.4s";
+    imgEl.style.opacity = "0";
+    const fresh = new Image();
+    fresh.src = url;
+    fresh.onload = () => {
+      imgEl.src = url;
+      imgEl.style.opacity = "1";
+    };
+    fresh.onerror = () => { imgEl.style.opacity = "1"; };
+  });
+};
+
 // ─── STATE ────────────────────────────────────────────────────────────────────
 const state = {
   view: "ingredients",
   currentRecipe: null,
   darkMode: JSON.parse(localStorage.getItem("darkMode")) || false,
-  hfToken: localStorage.getItem("hfToken") || "",
+  hfToken: "",
   cookedCount: JSON.parse(localStorage.getItem("cookedCount")) || 0,
   xp: JSON.parse(localStorage.getItem("xp")) || 0,
   level: JSON.parse(localStorage.getItem("level")) || 1,
@@ -505,7 +559,7 @@ const showView = (view) => {
     btn.classList.toggle("active", btn.dataset.nav === view);
   });
 
-  if (view === "profile")   { loadAPITokenInput(); updateTokenStatus(); renderProfileStats(); }
+  if (view === "profile")   { renderProfileStats(); }
   if (view === "saved")     { renderSavedStats(); renderSavedCards(); renderSavedFilters(); }
   if (view === "discovery") { renderJournalCards(); }
   if (view === "cooking")   { renderCookingStep(); }
@@ -622,43 +676,73 @@ const renderMatchChart = () => {
   const el = document.getElementById("match-chart");
   if (!el) return;
 
-  // Score each recipe against user's pantry using the same weighted logic
-  const userTokens = [];
-  state.ingredients.forEach(ing => {
-    const lower = ing.name.toLowerCase();
-    userTokens.push(lower);
-    lower.split(/\s+/).forEach(w => { if (w.length > 2) userTokens.push(w); });
-  });
-  const unique = [...new Set(userTokens)];
+  if (state.ingredients.length === 0) {
+    el.innerHTML = `<div class="match-empty"><span class="material-symbols-rounded">kitchen</span><span>Add ingredients to see match scores</span></div>`;
+    return;
+  }
 
-  const allRecipes = [...recipeDatabase, ...state.recipes].slice(0, 8);
+  // Re-use the same alias map for consistency with the generator
+  const CHART_ALIASES = {
+    "egg": ["egg","eggs","farm fresh eggs"], "chicken": ["chicken","poultry"],
+    "potato": ["potato","potatoes","russet potato","russet potatoes","aloo"],
+    "spinach": ["spinach","baby spinach"], "cheese": ["cheese","cheddar","cheddar cheese","parmesan","mozzarella"],
+    "garlic": ["garlic","garlic cloves"], "onion": ["onion","red onion","spring onion","shallot"],
+    "tomato": ["tomato","tomatoes","cherry tomato"], "rice": ["rice","basmati","jasmine rice","steamed rice"],
+    "pasta": ["pasta","spaghetti","linguine","penne","noodle"],
+    "salmon": ["salmon","fish fillet"], "fish": ["fish","salmon","tuna","cod"],
+    "paneer": ["paneer","cottage cheese"], "mushroom": ["mushroom","mushrooms"],
+    "bread": ["bread","sourdough","toast","baguette"], "avocado": ["avocado"],
+    "carrot": ["carrot","carrots"], "capsicum": ["capsicum","pepper","bell pepper"],
+    "cauliflower": ["cauliflower","gobi"], "lentil": ["lentil","lentils","dal","daal","red lentil"],
+    "mutton": ["mutton","lamb","goat meat"], "butter": ["butter"],
+  };
+
+  const userHas = new Set();
+  state.ingredients.forEach(ing => {
+    const lower = ing.name.toLowerCase().trim();
+    userHas.add(lower);
+    lower.split(/[\s,]+/).forEach(w => { if (w.length >= 3) userHas.add(w); });
+    Object.entries(CHART_ALIASES).forEach(([canonical, aliases]) => {
+      if (aliases.some(a => lower.includes(a) || a.includes(lower))) userHas.add(canonical);
+    });
+  });
+
+  const chartHasIngredient = (kw) => {
+    const k = kw.toLowerCase().trim();
+    if (userHas.has(k)) return true;
+    const canonical = Object.entries(CHART_ALIASES).find(([c, aliases]) => c === k || aliases.includes(k));
+    if (canonical) return canonical[1].some(a => userHas.has(a)) || userHas.has(canonical[0]);
+    return k.length >= 4 && [...userHas].some(u => u.length >= 4 && (u.includes(k) || k.includes(u)));
+  };
+
+  const allRecipes = [...recipeDatabase, ...state.recipes].slice(0, 10);
   const uniqueByTitle = [];
   const seenTitles = new Set();
   allRecipes.forEach(r => { if (!seenTitles.has(r.title)) { seenTitles.add(r.title); uniqueByTitle.push(r); } });
 
   const scored = uniqueByTitle.map(r => {
-    let score = 0, primaryMatches = 0;
-    (r.primary || []).forEach(pk => {
-      if (unique.some(u => u.includes(pk) || pk.includes(u))) { score += 10; primaryMatches++; }
-    });
-    (r.keywords || []).forEach(kw => {
-      if (unique.some(u => u.includes(kw) || kw.includes(u))) score += 3;
-    });
-    if ((r.primary || []).length > 0 && primaryMatches === 0) score -= 50;
-    const maxPossible = ((r.primary||[]).length * 10) + ((r.keywords||[]).length * 3);
-    const pct = maxPossible > 0 ? Math.min(98, Math.max(4, Math.round((Math.max(0,score) / maxPossible) * 100))) : 4;
+    const primaryKws = r.primary || [];
+    const allKws = r.keywords || [];
+    const primaryMatched = primaryKws.filter(pk => chartHasIngredient(pk)).length;
+    if (primaryKws.length > 0 && primaryMatched === 0) return { title: r.title, pct: 0 };
+    const kwMatched = allKws.filter(kw => chartHasIngredient(kw)).length;
+    const kwTotal = allKws.length;
+    const primaryScore = primaryMatched * 50;
+    const kwScore = kwMatched * 5;
+    const coverageBonus = kwTotal > 0 ? Math.round((kwMatched / kwTotal) * 30) : 0;
+    const score = primaryScore + kwScore + coverageBonus;
+    const maxScore = (primaryKws.length * 50) + (kwTotal * 5) + 30;
+    const pct = maxScore > 0 ? Math.min(98, Math.round((score / maxScore) * 100)) : 0;
     return { title: r.title, pct };
   })
+  .filter(d => d.pct > 0)
   .sort((a, b) => b.pct - a.pct)
   .slice(0, 5);
 
-  if (scored.length === 0 || unique.length === 0) {
-    el.parentElement.querySelector(".match-chart-header") &&
-      (el.innerHTML = `<div class="match-empty"><span class="material-symbols-rounded">kitchen</span><span>Add ingredients to see match scores</span></div>`);
+  if (scored.length === 0) {
+    el.innerHTML = `<div class="match-empty"><span class="material-symbols-rounded">kitchen</span><span>No matching recipes found — try adding more ingredients</span></div>`;
     return;
   }
-
-  const maxPct = scored[0]?.pct || 1;
 
   el.innerHTML = `<div class="match-rows">${
     scored.map((d, i) => {
@@ -677,7 +761,6 @@ const renderMatchChart = () => {
     }).join("")
   }</div>`;
 
-  // Animate bars in after a brief delay
   requestAnimationFrame(() => {
     el.querySelectorAll(".match-fill").forEach(bar => {
       bar.style.width = bar.dataset.w + "%";
@@ -692,7 +775,7 @@ const renderJournalCards = () => {
   el.innerHTML = state.recipes.map((r, i) => `
     <div class="journal-card" data-recipe-idx="${i}">
       <div class="journal-card-img">
-        <img src="${r.image}" alt="${r.title}" loading="lazy" />
+        <img src="${r.image}" alt="${r.title}" loading="lazy" data-recipe-title="${r.title.replace(/"/g, '&quot;')}" />
         ${r.badge ? `<span class="journal-badge ${r.badgeType || 'green'}">${r.badge}</span>` : ""}
       </div>
       <div class="journal-card-body">
@@ -704,6 +787,11 @@ const renderJournalCards = () => {
         <p class="journal-card-quote">"${r.desc}"</p>
       </div>
     </div>`).join("");
+
+  // Async-swap each card image with a live Unsplash photo
+  el.querySelectorAll("img[data-recipe-title]").forEach(img => {
+    enqueueImageUpdate(img, img.dataset.recipeTitle, img.src);
+  });
 };
 
 // ─── COOKING MODE ─────────────────────────────────────────────────────────────
@@ -724,9 +812,14 @@ const renderCookingStep = () => {
   const topLabel = document.getElementById("cooking-step-label-top");
   if (topLabel) topLabel.textContent = `Step ${i + 1} of ${total}`;
 
-  // Step image
+  // Step image — show immediately, then async-swap to a step-specific Unsplash photo
   const stepImg = document.getElementById("cooking-step-img");
-  if (stepImg) stepImg.src = step.image || recipe.image || "";
+  if (stepImg) {
+    const stepFallback = step.image || recipe.image || "";
+    stepImg.src = stepFallback;
+    const stepQuery = (step.title ? step.title + " " : "") + (recipe.title || "");
+    enqueueImageUpdate(stepImg, stepQuery, stepFallback);
+  }
   const imgLabel = document.getElementById("cooking-img-label");
   if (imgLabel) imgLabel.textContent = step.imgLabel || "CURRENT STEP";
 
@@ -816,7 +909,7 @@ const renderSavedCards = () => {
     return `
       <div class="journal-card" style="position:relative;">
         <div class="journal-card-img">
-          <img src="${r.image}" alt="${r.title}" loading="lazy" />
+          <img src="${r.image}" alt="${r.title}" loading="lazy" data-recipe-title="${r.title.replace(/"/g, '&quot;')}" />
           ${r.badge ? `<span class="journal-badge ${r.badgeType || 'green'}">${r.badge}</span>` : ""}
           <button class="unsave-btn hero-nav-btn" data-unsave="${idx}"
             style="position:absolute;top:12px;right:12px;background:rgba(255,255,255,0.9);">
@@ -842,6 +935,11 @@ const renderSavedCards = () => {
         </div>
       </div>`;
   }).join("");
+
+  // Async-swap each saved card image with a live Unsplash photo
+  el.querySelectorAll("img[data-recipe-title]").forEach(img => {
+    enqueueImageUpdate(img, img.dataset.recipeTitle, img.src);
+  });
 };
 
 // ─── SAVED FILTERS ────────────────────────────────────────────────────────────
@@ -910,36 +1008,30 @@ const renderWeeklyChart = () => {
 };
 
 // ─── API TOKEN ────────────────────────────────────────────────────────────────
-const loadAPITokenInput = () => {
-  const input = document.getElementById("hf-api-token");
-  if (input) input.value = state.hfToken;
-};
-const updateTokenStatus = () => {
-  const el = document.getElementById("token-status");
-  if (el) { el.textContent = state.hfToken ? "AI Ready" : "No token set"; el.style.color = state.hfToken ? "var(--success)" : "var(--error)"; }
-};
+// (AI token helpers removed — AI Vision feature removed)
 
 // ─── RENDER DETAIL VIEW ───────────────────────────────────────────────────────
 const renderDetail = () => {
   const recipe = state.currentRecipe;
   if (!recipe) return;
 
-  // Hero image
+  // Hero image — show existing image immediately, then async-swap with live Unsplash photo
   const heroImg = document.getElementById("detail-hero-img");
   if (heroImg) {
+    const fallbackUrl = recipe.image || "https://images.unsplash.com/photo-1598103442097-8b74394b95c2?auto=format&fit=crop&w=900&q=80";
     heroImg.style.opacity = "0";
-    // Use a reliable image with cache-busting to bypass CORS cold-load issues
-    const imgUrl = recipe.image || "https://images.unsplash.com/photo-1598103442097-8b74394b95c2?auto=format&fit=crop&w=900&q=80";
-    heroImg.src = imgUrl + (imgUrl.includes("?") ? "&" : "?") + "t=" + Date.now();
     heroImg.alt = recipe.title;
     heroImg.crossOrigin = "anonymous";
+    // Show the existing image right away
+    heroImg.src = fallbackUrl;
     heroImg.onload = () => { heroImg.style.transition = "opacity 0.4s"; heroImg.style.opacity = "1"; };
     heroImg.onerror = () => {
-      // Fallback to picsum for guaranteed image display
       heroImg.crossOrigin = null;
       heroImg.src = `https://picsum.photos/seed/${encodeURIComponent(recipe.title)}/900/600`;
       heroImg.style.opacity = "1";
     };
+    // Async-swap to a fresh, relevant Unsplash photo
+    enqueueImageUpdate(heroImg, recipe.title, fallbackUrl);
   }
 
   // Title, time, nutrition
@@ -992,7 +1084,7 @@ const renderDetail = () => {
       const title = typeof step === "string" ? `Step ${i+1}` : step.title;
       const desc  = typeof step === "string" ? step : step.desc;
       const stepImg = (typeof step === "object" && step.image && i === 1) ?
-        `<div class="step-inline-img"><img src="${step.image}" alt="${title}" onerror="this.parentElement.style.display='none'"/></div>` : "";
+        `<div class="step-inline-img"><img src="${step.image}" alt="${title}" data-step-title="${(title + " " + (recipe.title||"")).replace(/"/g,"&quot;")}" onerror="this.parentElement.style.display='none'"/></div>` : "";
       return `
         <div class="step-item">
           <div class="step-num">${i+1}</div>
@@ -1011,6 +1103,10 @@ const renderDetail = () => {
     // Wire up speak buttons
     stepsEl.querySelectorAll(".step-speak-btn").forEach(btn => {
       btn.addEventListener("click", () => speakStep(btn));
+    });
+    // Async-swap inline step images with live Unsplash photos
+    stepsEl.querySelectorAll("img[data-step-title]").forEach(img => {
+      enqueueImageUpdate(img, img.dataset.stepTitle, img.src);
     });
   }
 
@@ -1070,7 +1166,7 @@ const generateRecipe = async () => {
   await new Promise(r => setTimeout(r, 700));
 
   if (!state.hfToken) {
-    useLocalRecipeDatabase(state.ingredients);
+    await useLocalRecipeDatabase(state.ingredients);
     if (btn) { btn.innerHTML = '<span class="material-symbols-rounded">auto_awesome</span> Generate Magic Recipe'; btn.disabled = false; }
     addXP(50);
     renderMatchChart();
@@ -1090,20 +1186,23 @@ const generateRecipe = async () => {
     const m = text.match(/\{[\s\S]*\}/);
     if (m) {
       const p = JSON.parse(m[0]);
+      const recipeTitle = p.title || "AI Generated Recipe";
+      // Fetch a live, relevant image from Unsplash
+      const liveImage = await fetchUnsplashImage(recipeTitle);
       const recipe = {
-        title: p.title || "AI Generated Recipe", desc: p.description || "",
+        title: recipeTitle, desc: p.description || "",
         time: p.time || "30 min", prepTime: "10 min", cookTime: "20 min",
         difficulty: p.difficulty || "Medium", rating: "4.5",
         badge: "AI Recipe", badgeType: "green", date: new Date().toLocaleDateString("en-US", { month:"long", day:"numeric", year:"numeric" }),
-        keywords: [], image: "https://images.unsplash.com/photo-1495521821757-a1efb6729352?auto=format&fit=crop&w=900&q=80",
+        keywords: [], image: liveImage,
         ingredients: (p.ingredients || []).map(i => ({ name: i, color: "#8D99AE" })),
         steps: (p.steps || []).map((s, idx) => ({ title: `Step ${idx+1}`, desc: s })),
       };
       state.recipes.unshift(recipe); state.currentRecipe = recipe;
       localStorage.setItem("recipes", JSON.stringify(state.recipes));
       renderJournalCards(); renderDetail(); showView("detail"); addXP(50);
-    } else { useLocalRecipeDatabase(state.ingredients); }
-  } catch { useLocalRecipeDatabase(state.ingredients); }
+    } else { await useLocalRecipeDatabase(state.ingredients); }
+  } catch { await useLocalRecipeDatabase(state.ingredients); }
   finally {
     if (btn) { btn.innerHTML = '<span class="material-symbols-rounded">auto_awesome</span> Generate Magic Recipe'; btn.disabled = false; }
     renderMatchChart();
@@ -1111,61 +1210,111 @@ const generateRecipe = async () => {
 };
 
 // ─── LOCAL RECIPE MATCHING ────────────────────────────────────────────────────
-const useLocalRecipeDatabase = (ingredients) => {
-  // Expand user ingredient names into individual words + the full name
-  // e.g. "chicken breast" → ["chicken breast", "chicken", "breast"]
-  const userTokens = [];
+const useLocalRecipeDatabase = async (ingredients) => {
+  // ── Step 1: Expand user ingredients into a rich token set ──────────────────
+  // Map common ingredient names to canonical forms so "Farm Fresh Eggs" → "egg"
+  const ALIASES = {
+    "egg": ["egg", "eggs", "farm fresh eggs"],
+    "chicken": ["chicken", "poultry"],
+    "potato": ["potato", "potatoes", "russet potato", "russet potatoes", "aloo"],
+    "spinach": ["spinach", "baby spinach"],
+    "cheese": ["cheese", "cheddar", "cheddar cheese", "parmesan", "mozzarella"],
+    "garlic": ["garlic", "garlic cloves"],
+    "onion": ["onion", "red onion", "spring onion", "shallot"],
+    "tomato": ["tomato", "tomatoes", "cherry tomato"],
+    "rice": ["rice", "basmati", "jasmine rice", "steamed rice"],
+    "pasta": ["pasta", "spaghetti", "linguine", "penne", "noodle"],
+    "butter": ["butter"],
+    "cream": ["cream", "heavy cream", "double cream"],
+    "milk": ["milk"],
+    "salmon": ["salmon", "fish fillet"],
+    "fish": ["fish", "salmon", "tuna", "cod"],
+    "paneer": ["paneer", "cottage cheese"],
+    "mushroom": ["mushroom", "mushrooms"],
+    "bread": ["bread", "sourdough", "toast", "baguette"],
+    "avocado": ["avocado"],
+    "carrot": ["carrot", "carrots"],
+    "capsicum": ["capsicum", "pepper", "bell pepper"],
+    "cauliflower": ["cauliflower", "gobi"],
+    "lentil": ["lentil", "lentils", "dal", "daal", "red lentil"],
+    "mutton": ["mutton", "lamb", "goat meat"],
+    "lamb": ["lamb", "mutton"],
+  };
+
+  // Build a normalised set of what the user has
+  const userHas = new Set();
   ingredients.forEach(ing => {
-    const lower = ing.name.toLowerCase();
-    userTokens.push(lower);
-    lower.split(/\s+/).forEach(w => { if (w.length > 2) userTokens.push(w); });
-  });
-
-  const unique = [...new Set(userTokens)];
-
-  // Scoring: primary keyword match = 10 pts, regular keyword = 3 pts
-  // If NONE of the primary keywords match → apply -50 penalty (prevents wrong matches)
-  let best = null, bestScore = -Infinity, bestPrimaryMatchCount = 0;
-
-  recipeDatabase.forEach(r => {
-    let score = 0;
-    let primaryMatches = 0;
-
-    // Check primary keywords (the core ingredient of the recipe)
-    (r.primary || []).forEach(pk => {
-      if (unique.some(u => u.includes(pk) || pk.includes(u))) {
-        score += 10;
-        primaryMatches++;
+    const lower = ing.name.toLowerCase().trim();
+    userHas.add(lower);
+    // Add individual words (min 3 chars) for partial matching
+    lower.split(/[\s,]+/).forEach(w => { if (w.length >= 3) userHas.add(w); });
+    // Resolve aliases — if the ingredient matches an alias, add the canonical key
+    Object.entries(ALIASES).forEach(([canonical, aliases]) => {
+      if (aliases.some(a => lower.includes(a) || a.includes(lower))) {
+        userHas.add(canonical);
       }
     });
-
-    // Check all keywords (supporting ingredients)
-    (r.keywords || []).forEach(kw => {
-      if (unique.some(u => u.includes(kw) || kw.includes(u))) {
-        score += 3;
-      }
-    });
-
-    // Heavy penalty if recipe has primary keywords but none matched
-    // This prevents "Egg Fried Rice" winning when user adds chicken + rice
-    if ((r.primary || []).length > 0 && primaryMatches === 0) {
-      score -= 50;
-    }
-
-    if (score > bestScore) {
-      bestScore = score;
-      best = r;
-      bestPrimaryMatchCount = primaryMatches;
-    }
   });
 
-  // Calculate match percentage based on how many of the recipe's keywords matched
-  const baseRecipe = best || recipeDatabase[0];
-  const maxPossible = ((baseRecipe.primary || []).length * 10) + ((baseRecipe.keywords || []).length * 3);
-  const rawScore = Math.max(0, bestScore);
-  const pct = maxPossible > 0 ? Math.min(98, Math.round((rawScore / maxPossible) * 100)) : 0;
+  // Helper: does the user have this ingredient?
+  const userHasIngredient = (kw) => {
+    const k = kw.toLowerCase().trim();
+    if (userHas.has(k)) return true;
+    // Also check via aliases
+    const canonical = Object.entries(ALIASES).find(([c, aliases]) =>
+      c === k || aliases.includes(k)
+    );
+    if (canonical) {
+      // User has this canonical if any alias is in userHas
+      return canonical[1].some(a => userHas.has(a)) || userHas.has(canonical[0]);
+    }
+    // Partial: user token contains keyword or keyword contains user token
+    // Only allow if both sides are at least 4 chars to avoid false positives
+    return k.length >= 4 && [...userHas].some(u => u.length >= 4 && (u.includes(k) || k.includes(u)));
+  };
 
-  // Build ingredient list from user's pantry
+  // ── Step 2: Score every recipe ──────────────────────────────────────────────
+  const scored = recipeDatabase.map(r => {
+    const primaryKws = r.primary || [];
+    const allKws = r.keywords || [];
+
+    // How many PRIMARY ingredients does the user have?
+    const primaryMatched = primaryKws.filter(pk => userHasIngredient(pk)).length;
+    const primaryTotal   = primaryKws.length;
+
+    // If the recipe has primary ingredients but NONE match → hard exclude
+    if (primaryTotal > 0 && primaryMatched === 0) return { r, score: -9999, pct: 0 };
+
+    // How many of the recipe's keywords (supporting ingredients) does user have?
+    const kwMatched = allKws.filter(kw => userHasIngredient(kw)).length;
+    const kwTotal   = allKws.length;
+
+    // Score = heavily weighted primary match + keyword coverage
+    // Primary full match: 50 pts each, partial: 20 pts
+    // Keyword match: 5 pts each
+    const primaryScore = primaryMatched * 50;
+    const kwScore      = kwMatched * 5;
+
+    // Coverage bonus: % of recipe keywords user can supply (rewards completeness)
+    const coveragePct  = kwTotal > 0 ? kwMatched / kwTotal : 0;
+    const coverageBonus = Math.round(coveragePct * 30);
+
+    const score = primaryScore + kwScore + coverageBonus;
+
+    // Match % shown to user: based on combined coverage
+    const maxScore = (primaryTotal * 50) + (kwTotal * 5) + 30;
+    const pct = maxScore > 0 ? Math.min(98, Math.round((score / maxScore) * 100)) : 0;
+
+    return { r, score, pct };
+  });
+
+  // Sort by score descending, pick the best
+  scored.sort((a, b) => b.score - a.score);
+  const best = scored[0];
+  const baseRecipe = (best && best.score > 0) ? best.r : recipeDatabase[0];
+  const pct = (best && best.score > 0) ? best.pct : 5;
+
+  // ── Step 3: Build the ingredient list from the user's pantry ────────────────
   const pfx = ["2 cups","1 cup","3 tbsp","2 tbsp","1 tbsp","1 tsp","2 medium","Handful of","1 can","3 large"];
   const recipeIngredients = ingredients.slice(0, 8).map((ing, i) => ({
     name: pfx[i % pfx.length] + " " + ing.name,
@@ -1176,8 +1325,11 @@ const useLocalRecipeDatabase = (ingredients) => {
       recipeIngredients.push({ name: ["2 tbsp","1 tsp","1/2 tsp","1 tbsp","1/4 cup"][i%5] + " " + s.name, sub: "Staple", color: "#8D99AE" });
   });
 
+  // Fetch a live, relevant image from Unsplash for this recipe
+  const liveImage = await fetchUnsplashImage(baseRecipe.title, baseRecipe.image);
   const recipe = {
     ...baseRecipe,
+    image: liveImage,
     match: pct + "% Match",
     matchColor: pct >= 60 ? "#3A5F2D" : pct >= 30 ? "#4CC9F0" : "#FFB703",
     date: new Date().toLocaleDateString("en-US", { month:"long", day:"numeric", year:"numeric" }),
@@ -1219,33 +1371,49 @@ const translateRecipeToHinglish = async () => {
   } finally { btn.disabled = false; btn.innerHTML = orig; }
 };
 
-// ─── AI VISION ────────────────────────────────────────────────────────────────
-const processImageWithAI = async (file) => {
-  const loader = document.getElementById("ai-loading");
-  if (!state.hfToken) { showToast("Set up API token in Profile first"); showView("profile"); return; }
-  if (loader) loader.style.display = "flex";
-  showToast("AI scanning your image...");
-  try {
-    const reader = new FileReader();
-    reader.readAsArrayBuffer(file);
-    await new Promise(r => (reader.onload = r));
-    const res = await fetch("https://api-inference.huggingface.co/models/google/vit-base-patch16-224", {
-      headers: { Authorization: `Bearer ${state.hfToken}`, "Content-Type": "application/octet-stream" },
-      method: "POST", body: reader.result,
-    });
-    if (!res.ok) throw new Error("API " + res.status);
-    const result = await res.json();
-    const labels = (Array.isArray(result) ? result : []).slice(0, 3).map(r => r.label.split(",")[0].trim());
-    if (labels.length) {
-      labels.forEach(label => {
-        const meta = autoCategory(label);
-        state.ingredients.unshift({ name: label.charAt(0).toUpperCase() + label.slice(1), ...meta });
-      });
-      renderIngredients();
-      showToast("AI detected: " + labels.join(", "));
-    } else { showToast("No ingredients detected. Try a clearer photo."); }
-  } catch (e) { showToast("AI vision error: " + e.message); }
-  finally { if (loader) loader.style.display = "none"; }
+// ─── SUGGEST INGREDIENTS ─────────────────────────────────────────────────────
+// Maps each ingredient to common pairings. Clicking "Suggest Ingredients" adds
+// 1-2 smart companion ingredients that work well with what's already in the pantry.
+const INGREDIENT_PAIRINGS = {
+  chicken: ["Garlic", "Lemon", "Rosemary", "Onion", "Ginger"],
+  egg:     ["Tomato", "Onion", "Cheddar Cheese", "Spinach"],
+  potato:  ["Garlic", "Rosemary", "Butter", "Onion", "Cheddar Cheese"],
+  spinach: ["Garlic", "Lemon", "Onion", "Paneer", "Cheddar Cheese"],
+  pasta:   ["Garlic", "Tomato", "Basil", "Olive Oil", "Parmesan"],
+  salmon:  ["Lemon", "Garlic", "Butter", "Dill", "Capers"],
+  paneer:  ["Tomato", "Onion", "Garam Masala", "Cream", "Capsicum"],
+  rice:    ["Onion", "Garlic", "Soy Sauce", "Ginger", "Carrot"],
+  tomato:  ["Basil", "Garlic", "Onion", "Olive Oil", "Cheese"],
+  mushroom:["Garlic", "Butter", "Thyme", "Cream", "Parsley"],
+  lentil:  ["Tomato", "Garlic", "Cumin", "Onion", "Coriander"],
+  default: ["Garlic", "Onion", "Olive Oil", "Lemon", "Salt & Pepper"],
+};
+
+const suggestIngredients = () => {
+  const userNames = state.ingredients.map(i => i.name.toLowerCase());
+  // Find a matching pairing list from current pantry
+  let candidates = [];
+  for (const [key, pairs] of Object.entries(INGREDIENT_PAIRINGS)) {
+    if (key !== "default" && userNames.some(u => u.includes(key))) {
+      candidates = [...candidates, ...pairs];
+    }
+  }
+  if (!candidates.length) candidates = INGREDIENT_PAIRINGS.default;
+
+  // Filter out what user already has, pick up to 2 suggestions
+  const suggestions = [...new Set(candidates)]
+    .filter(s => !userNames.some(u => u.includes(s.toLowerCase())))
+    .slice(0, 2);
+
+  if (!suggestions.length) { showToast("Your pantry is well-stocked! 🎉"); return; }
+
+  suggestions.forEach(name => {
+    const meta = autoCategory(name);
+    state.ingredients.push({ name, ...meta });
+  });
+  renderIngredients();
+  renderMatchChart();
+  showToast(`Added: ${suggestions.join(" & ")} ✨`);
 };
 
 // ─── VOICE INSTRUCTIONS ──────────────────────────────────────────────────────
@@ -1752,7 +1920,10 @@ if (cookingNextBtn) {
       addXP(250);
       // Populate bonjour screen
       const bonjourImg = document.getElementById("bonjour-img");
-      if (bonjourImg) bonjourImg.src = recipe.image;
+      if (bonjourImg) {
+        bonjourImg.src = recipe.image || "";
+        enqueueImageUpdate(bonjourImg, recipe.title, recipe.image || "");
+      }
       const bonjourDiff = document.getElementById("bonjour-difficulty");
       if (bonjourDiff) bonjourDiff.textContent = recipe.difficulty || "Intermediate";
       renderSavedStats(); renderProfileStats(); renderWeeklyChart();
@@ -1916,9 +2087,29 @@ const logCookedRecipe = (stars) => {
   showToast(msg);
 };
 
-// Translate
-const translateBtn = document.getElementById("translate-recipe-btn");
-if (translateBtn) translateBtn.addEventListener("click", translateRecipeToHinglish);
+// ─── SHARE RECIPE ─────────────────────────────────────────────────────────────
+const shareRecipe = async () => {
+  const recipe = state.currentRecipe;
+  if (!recipe) return;
+  const text = `🍽️ ${recipe.title}\n⏱ ${recipe.time} · ${recipe.difficulty}\n\n${recipe.desc}\n\nGenerated by Pantry Chef`;
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: recipe.title, text });
+    } catch (e) { /* user cancelled — no-op */ }
+  } else {
+    // Fallback: copy to clipboard
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast("Recipe copied to clipboard! 📋");
+    } catch { showToast("Share: " + text); }
+  }
+};
+const shareBtn = document.getElementById("share-recipe-btn");
+if (shareBtn) shareBtn.addEventListener("click", shareRecipe);
+
+// Suggest Ingredients chip
+const suggestBtn = document.getElementById("suggest-ingredient-btn");
+if (suggestBtn) suggestBtn.addEventListener("click", suggestIngredients);
 
 // ─── PWA — REGISTER SERVICE WORKER ───────────────────────────────────────────
 if ("serviceWorker" in navigator) {
@@ -1969,24 +2160,51 @@ if (darkToggle) {
   });
 }
 
-// Save API token
-const saveTokenBtn = document.getElementById("save-token-btn");
-if (saveTokenBtn) {
-  saveTokenBtn.addEventListener("click", () => {
-    const input = document.getElementById("hf-api-token");
-    const token = (input?.value || "").trim();
-    state.hfToken = token;
-    localStorage.setItem("hfToken", token);
-    updateTokenStatus();
-    showToast(token ? "AI token saved!" : "Token cleared");
+// ─── APP SETTINGS (Profile screen) ───────────────────────────────────────────
+// Measurement unit toggle
+const unitMetricProfile = document.getElementById("unit-metric-profile");
+const unitUSProfile     = document.getElementById("unit-us-profile");
+if (unitMetricProfile && unitUSProfile) {
+  const saved = localStorage.getItem("prefUnit") || "metric";
+  if (saved === "us") { unitUSProfile.classList.add("active"); unitMetricProfile.classList.remove("active"); }
+  unitMetricProfile.addEventListener("click", () => {
+    unitMetricProfile.classList.add("active"); unitUSProfile.classList.remove("active");
+    localStorage.setItem("prefUnit", "metric"); showToast("Metric units selected");
+  });
+  unitUSProfile.addEventListener("click", () => {
+    unitUSProfile.classList.add("active"); unitMetricProfile.classList.remove("active");
+    localStorage.setItem("prefUnit", "us"); showToast("US / Imperial units selected");
   });
 }
 
-// AI Vision image upload
-const uploadBtn  = document.getElementById("upload-image-btn");
-const fileInput  = document.getElementById("image-upload");
-if (uploadBtn)  uploadBtn.addEventListener("click", () => fileInput.click());
-if (fileInput)  fileInput.addEventListener("change", async e => {
-  const file = e.target.files[0];
-  if (file) { await processImageWithAI(file); e.target.value = ""; }
+// Servings stepper
+let defaultServings = parseInt(localStorage.getItem("defaultServings") || "4");
+const servingsCount = document.getElementById("servings-count");
+if (servingsCount) servingsCount.textContent = defaultServings;
+document.getElementById("servings-minus")?.addEventListener("click", () => {
+  if (defaultServings > 1) { defaultServings--; if (servingsCount) servingsCount.textContent = defaultServings; localStorage.setItem("defaultServings", defaultServings); showToast(`Default: ${defaultServings} servings`); }
 });
+document.getElementById("servings-plus")?.addEventListener("click", () => {
+  if (defaultServings < 12) { defaultServings++; if (servingsCount) servingsCount.textContent = defaultServings; localStorage.setItem("defaultServings", defaultServings); showToast(`Default: ${defaultServings} servings`); }
+});
+
+// Notification toggle (browser notification permission)
+const notifToggle = document.getElementById("notif-toggle");
+if (notifToggle) {
+  notifToggle.checked = localStorage.getItem("notifEnabled") === "true";
+  notifToggle.addEventListener("change", async e => {
+    if (e.target.checked) {
+      const perm = await Notification.requestPermission();
+      if (perm === "granted") {
+        localStorage.setItem("notifEnabled", "true");
+        showToast("Cooking reminders enabled! 🔔");
+      } else {
+        e.target.checked = false;
+        showToast("Permission denied — enable in browser settings");
+      }
+    } else {
+      localStorage.setItem("notifEnabled", "false");
+      showToast("Reminders turned off");
+    }
+  });
+}
